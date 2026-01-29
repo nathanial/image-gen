@@ -52,6 +52,9 @@ def cmd : Command := command "image-gen" do
     (description := "Number of image variations to generate")
     (defaultValue := some "1")
 
+  Cmd.boolFlag "list-models" (short := some 'l')
+    (description := "List available image generation models")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -300,6 +303,27 @@ test "parses count with other flags combined" := do
     result.getString "aspect-ratio" ≡ some "16:9"
     shouldSatisfy (result.getBool "verbose") "verbose should be true"
     result.getString "prompt" ≡ some "A prompt"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses list-models flag with short form" := do
+  match parse cmd ["-l"] with
+  | .ok result =>
+    shouldSatisfy (result.getBool "list-models") "list-models should be true"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses list-models flag with long form" := do
+  match parse cmd ["--list-models"] with
+  | .ok result =>
+    shouldSatisfy (result.getBool "list-models") "list-models should be true"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "list-models defaults to false" := do
+  match parse cmd ["A test prompt"] with
+  | .ok result =>
+    shouldSatisfy (!result.getBool "list-models") "list-models should be false"
   | .error e =>
     throw (IO.userError s!"Parse failed: {e}")
 

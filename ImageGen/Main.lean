@@ -67,6 +67,9 @@ def cmd : Command := command "image-gen" do
     (description := "Number of image variations to generate")
     (defaultValue := some "1")
 
+  Cmd.boolFlag "list-models" (short := some 'l')
+    (description := "List available image generation models")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -81,6 +84,19 @@ def main (args : List String) : IO UInt32 := do
     printParseError e
     return 1
   | .ok result =>
+    -- Handle --list-models first (doesn't require API key)
+    if result.getBool "list-models" then
+      IO.println "Available image generation models:"
+      IO.println ""
+      IO.println s!"  {Models.geminiFlashImage} (default)"
+      IO.println "    Google Gemini 2.5 Flash - Fast image generation"
+      IO.println ""
+      IO.println s!"  {Models.geminiProImage}"
+      IO.println "    Google Gemini 3 Pro - Higher quality image generation"
+      IO.println ""
+      IO.println "Usage: image-gen -m <model> \"your prompt\""
+      return 0
+
     let prompt := result.getString "prompt"
     let output := result.getString! "output" "image.png"
     let aspectRatio := result.getString "aspect-ratio"
