@@ -55,6 +55,9 @@ def cmd : Command := command "image-gen" do
   Cmd.boolFlag "list-models" (short := some 'l')
     (description := "List available image generation models")
 
+  Cmd.boolFlag "interactive" (short := some 'I')
+    (description := "Start interactive REPL mode")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -324,6 +327,35 @@ test "list-models defaults to false" := do
   match parse cmd ["A test prompt"] with
   | .ok result =>
     shouldSatisfy (!result.getBool "list-models") "list-models should be false"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses interactive flag with short form" := do
+  match parse cmd ["-I"] with
+  | .ok result =>
+    shouldSatisfy (result.getBool "interactive") "interactive should be true"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses interactive flag with long form" := do
+  match parse cmd ["--interactive"] with
+  | .ok result =>
+    shouldSatisfy (result.getBool "interactive") "interactive should be true"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "interactive defaults to false" := do
+  match parse cmd ["A prompt"] with
+  | .ok result =>
+    shouldSatisfy (!result.getBool "interactive") "interactive should be false"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "interactive with model flag" := do
+  match parse cmd ["-I", "-m", "google/gemini-3-pro"] with
+  | .ok result =>
+    shouldSatisfy (result.getBool "interactive") "interactive should be true"
+    result.getString "model" ≡ some "google/gemini-3-pro"
   | .error e =>
     throw (IO.userError s!"Parse failed: {e}")
 

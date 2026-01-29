@@ -4,6 +4,7 @@ import Wisp
 import ImageGen.Base64
 import ImageGen.Batch
 import ImageGen.ImageInput
+import ImageGen.Interactive
 
 open Parlance
 open Oracle
@@ -70,6 +71,9 @@ def cmd : Command := command "image-gen" do
   Cmd.boolFlag "list-models" (short := some 'l')
     (description := "List available image generation models")
 
+  Cmd.boolFlag "interactive" (short := some 'I')
+    (description := "Start interactive REPL mode")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -116,6 +120,18 @@ def main (args : List String) : IO UInt32 := do
 
     -- Create client
     let client := Client.withModel apiKey model
+
+    -- Interactive mode
+    if result.getBool "interactive" then
+      let config : ImageGen.Interactive.Config := {
+        client := client
+        model := model
+        aspectRatio := aspectRatio
+        verbose := verbose
+        outputDir := outputDir.getD "."
+      }
+      ImageGen.Interactive.run config
+      return 0
 
     -- Batch mode takes precedence
     if let some batchPath := batchFile then
