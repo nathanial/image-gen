@@ -12,6 +12,18 @@ def defaultModel : String := Models.geminiFlashImage
 
 def validAspectRatios : List String := ["16:9", "1:1", "4:3", "9:16", "3:4"]
 
+/-- Generate numbered output path for variations.
+    When total == 1, returns the base path unchanged.
+    Otherwise returns base_01.png, base_02.png, etc. with appropriate zero-padding. --/
+def numberedOutput (base : String) (index : Nat) (total : Nat) : String :=
+  if total == 1 then base
+  else
+    let stem := if base.endsWith ".png" then base.dropRight 4 else base
+    let width := if total >= 100 then 3 else if total >= 10 then 2 else 1
+    let indexStr := toString index
+    let padding := String.mk (List.replicate (width - indexStr.length) '0')
+    s!"{stem}_{padding}{indexStr}.png"
+
 def cmd : Command := command "image-gen" do
   Cmd.version "0.1.0"
   Cmd.description "Generate images from text prompts using AI"
@@ -50,6 +62,11 @@ def cmd : Command := command "image-gen" do
     (description := "Filename prefix for batch output")
     (defaultValue := some "image")
 
+  Cmd.flag "count" (short := some 'n')
+    (argType := .nat)
+    (description := "Number of image variations to generate")
+    (defaultValue := some "1")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -73,6 +90,7 @@ def main (args : List String) : IO UInt32 := do
     let batchFile := result.getString "batch"
     let outputDir := result.getString "output-dir"
     let filePrefix := result.getString! "prefix" "image"
+    let count := result.getNatD "count" 1
 
     -- Check for API key
     let some apiKey ← IO.getEnv "OPENROUTER_API_KEY"
@@ -93,6 +111,7 @@ def main (args : List String) : IO UInt32 := do
         model := model
         aspectRatio := aspectRatio
         verbose := verbose
+        count := count
       }
       let result ← ImageGen.Batch.runBatch client config
       Wisp.HTTP.Client.shutdown
@@ -124,15 +143,35 @@ def main (args : List String) : IO UInt32 := do
       -- Check if we have input images
       if imagePaths.isEmpty then
         -- Simple text-to-image generation
-        match ← client.generateImageToFile promptText output aspectRatio with
-        | .ok path =>
-          printSuccess s!"Image saved to {path}"
+        if count > 1 then
+          -- Multiple variations
+          let mut succeeded := 0
+          let mut failed := 0
+          for i in [1:count+1] do
+            let outPath := numberedOutput output i count
+            if verbose then
+              printInfo s!"[{i}/{count}] Generating variation..."
+            match ← client.generateImageToFile promptText outPath aspectRatio with
+            | .ok path =>
+              printSuccess s!"[{i}/{count}] Saved: {path}"
+              succeeded := succeeded + 1
+            | .error err =>
+              printError s!"[{i}/{count}] Failed: {err}"
+              failed := failed + 1
           Wisp.HTTP.Client.shutdown
-          return 0
-        | .error err =>
-          printError s!"Failed to generate image: {err}"
-          Wisp.HTTP.Client.shutdown
-          return 1
+          printInfo s!"Complete: {succeeded}/{count} succeeded, {failed} failed"
+          return if failed > 0 then 1 else 0
+        else
+          -- Single image
+          match ← client.generateImageToFile promptText output aspectRatio with
+          | .ok path =>
+            printSuccess s!"Image saved to {path}"
+            Wisp.HTTP.Client.shutdown
+            return 0
+          | .error err =>
+            printError s!"Failed to generate image: {err}"
+            Wisp.HTTP.Client.shutdown
+            return 1
       else
         -- Image-to-image generation with reference images
         -- Load input images

@@ -14,6 +14,7 @@ structure BatchConfig where
   model : String
   aspectRatio : Option String
   verbose : Bool
+  count : Nat                 -- Number of variations per prompt
 
 structure BatchResult where
   total : Nat
@@ -55,26 +56,27 @@ def runBatch (client : Client) (config : BatchConfig) : IO BatchResult := do
     printError "No prompts found in batch file"
     return { total := 0, succeeded := 0, failed := 0 }
 
-  let total := prompts.length
+  let total := prompts.length * config.count
   let mut succeeded := 0
   let mut failed := 0
   let mut idx := 0
 
   for prompt in prompts do
-    idx := idx + 1
-    let filename := outputFilename config.filePrefix idx total
-    let outputPath := s!"{config.outputDir}/{filename}"
+    for _ in [0:config.count] do
+      idx := idx + 1
+      let filename := outputFilename config.filePrefix idx total
+      let outputPath := s!"{config.outputDir}/{filename}"
 
-    if config.verbose then
-      printInfo s!"[{idx}/{total}] Generating: {prompt.take 50}..."
+      if config.verbose then
+        printInfo s!"[{idx}/{total}] Generating: {prompt.take 50}..."
 
-    match ← client.generateImageToFile prompt outputPath config.aspectRatio with
-    | .ok path =>
-      printSuccess s!"[{idx}/{total}] Saved: {path}"
-      succeeded := succeeded + 1
-    | .error err =>
-      printError s!"[{idx}/{total}] Failed: {err}"
-      failed := failed + 1
+      match ← client.generateImageToFile prompt outputPath config.aspectRatio with
+      | .ok path =>
+        printSuccess s!"[{idx}/{total}] Saved: {path}"
+        succeeded := succeeded + 1
+      | .error err =>
+        printError s!"[{idx}/{total}] Failed: {err}"
+        failed := failed + 1
 
   return { total, succeeded, failed }
 

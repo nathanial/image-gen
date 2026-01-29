@@ -47,6 +47,11 @@ def cmd : Command := command "image-gen" do
     (description := "Filename prefix for batch output")
     (defaultValue := some "image")
 
+  Cmd.flag "count" (short := some 'n')
+    (argType := .nat)
+    (description := "Number of image variations to generate")
+    (defaultValue := some "1")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
@@ -255,6 +260,46 @@ test "parses batch with other flags" := do
     result.getString "aspect-ratio" ≡ some "16:9"
     result.getString "model" ≡ some "mymodel"
     shouldSatisfy (result.getBool "verbose") "verbose should be true"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses count flag with short form" := do
+  match parse cmd ["-n", "3", "A sunset"] with
+  | .ok result =>
+    result.getNatD "count" 0 ≡ 3
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses count flag with long form" := do
+  match parse cmd ["--count", "5", "A sunset"] with
+  | .ok result =>
+    result.getNatD "count" 0 ≡ 5
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "uses default count value of 1" := do
+  match parse cmd ["A test prompt"] with
+  | .ok result =>
+    result.getNatD "count" 0 ≡ 1
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses count with batch mode" := do
+  match parse cmd ["--batch", "prompts.txt", "-n", "2"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "prompts.txt"
+    result.getNatD "count" 0 ≡ 2
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses count with other flags combined" := do
+  match parse cmd ["-o", "out.png", "-n", "4", "-a", "16:9", "-v", "A prompt"] with
+  | .ok result =>
+    result.getString "output" ≡ some "out.png"
+    result.getNatD "count" 0 ≡ 4
+    result.getString "aspect-ratio" ≡ some "16:9"
+    shouldSatisfy (result.getBool "verbose") "verbose should be true"
+    result.getString "prompt" ≡ some "A prompt"
   | .error e =>
     throw (IO.userError s!"Parse failed: {e}")
 
