@@ -1,5 +1,6 @@
 import Crucible
 import Parlance
+import ImageGen.Base64
 
 open Crucible
 open Parlance
@@ -27,6 +28,10 @@ def cmd : Command := command "image-gen" do
 
   Cmd.boolFlag "verbose" (short := some 'v')
     (description := "Enable verbose output")
+
+  Cmd.repeatableFlag "image" (short := some 'i')
+    (argType := .path)
+    (description := "Input image file path (can be specified multiple times)")
 
   Cmd.arg "prompt"
     (argType := .string)
@@ -139,6 +144,139 @@ test "parses prompt with spaces" := do
   | .error e =>
     throw (IO.userError s!"Parse failed: {e}")
 
+test "parses single image flag with short form" := do
+  match parse cmd ["-i", "reference.png", "Make this vintage"] with
+  | .ok result =>
+    result.getStrings "image" ≡ ["reference.png"]
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses single image flag with long form" := do
+  match parse cmd ["--image", "reference.png", "Make this vintage"] with
+  | .ok result =>
+    result.getStrings "image" ≡ ["reference.png"]
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses multiple image flags" := do
+  match parse cmd ["-i", "style.jpg", "-i", "content.png", "Combine styles"] with
+  | .ok result =>
+    result.getStrings "image" ≡ ["style.jpg", "content.png"]
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "image flag empty when not provided" := do
+  match parse cmd ["A simple prompt"] with
+  | .ok result =>
+    result.getStrings "image" ≡ []
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses image with other flags" := do
+  match parse cmd ["-i", "ref.png", "-o", "out.png", "-a", "16:9", "Transform this"] with
+  | .ok result =>
+    result.getStrings "image" ≡ ["ref.png"]
+    result.getString "output" ≡ some "out.png"
+    result.getString "aspect-ratio" ≡ some "16:9"
+    result.getString "prompt" ≡ some "Transform this"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
 end Tests.CLI
+
+namespace Tests.Base64
+
+testSuite "Base64 Encoding"
+
+test "encodes empty array" := do
+  let data := ByteArray.empty
+  ImageGen.base64Encode data ≡ ""
+
+test "encodes single byte" := do
+  let data := ByteArray.mk #[65]  -- 'A'
+  ImageGen.base64Encode data ≡ "QQ=="
+
+test "encodes two bytes" := do
+  let data := ByteArray.mk #[65, 66]  -- "AB"
+  ImageGen.base64Encode data ≡ "QUI="
+
+test "encodes three bytes" := do
+  let data := ByteArray.mk #[65, 66, 67]  -- "ABC"
+  ImageGen.base64Encode data ≡ "QUJD"
+
+test "encodes Hello" := do
+  let data := ByteArray.mk #[72, 101, 108, 108, 111]  -- "Hello"
+  ImageGen.base64Encode data ≡ "SGVsbG8="
+
+test "decodes empty string" := do
+  match ImageGen.base64Decode "" with
+  | some data => data.size ≡ 0
+  | none => throw (IO.userError "Decode failed")
+
+test "decodes single byte" := do
+  match ImageGen.base64Decode "QQ==" with
+  | some data =>
+    let expected := ByteArray.mk #[65]
+    shouldSatisfy (data == expected) "decoded bytes should match"
+  | none => throw (IO.userError "Decode failed")
+
+test "decodes Hello" := do
+  match ImageGen.base64Decode "SGVsbG8=" with
+  | some data =>
+    let expected := ByteArray.mk #[72, 101, 108, 108, 111]
+    shouldSatisfy (data == expected) "decoded Hello bytes should match"
+  | none => throw (IO.userError "Decode failed")
+
+test "roundtrip encoding" := do
+  let original := ByteArray.mk #[0, 127, 255, 128, 1, 254]
+  let encoded := ImageGen.base64Encode original
+  match ImageGen.base64Decode encoded with
+  | some decoded =>
+    shouldSatisfy (decoded == original) "roundtrip should preserve bytes"
+  | none => throw (IO.userError "Roundtrip decode failed")
+
+end Tests.Base64
+
+namespace Tests.ImageInput
+
+testSuite "Image Input"
+
+/-- Local copy of mediaTypeFromPath for testing without Oracle dependency -/
+def mediaTypeFromPath (path : String) : Option String :=
+  let ext := path.toLower
+  if ext.endsWith ".png" then some "image/png"
+  else if ext.endsWith ".jpg" || ext.endsWith ".jpeg" then some "image/jpeg"
+  else if ext.endsWith ".gif" then some "image/gif"
+  else if ext.endsWith ".webp" then some "image/webp"
+  else none
+
+test "detects PNG media type" := do
+  mediaTypeFromPath "image.png" ≡ some "image/png"
+
+test "detects PNG media type uppercase" := do
+  mediaTypeFromPath "IMAGE.PNG" ≡ some "image/png"
+
+test "detects JPG media type" := do
+  mediaTypeFromPath "photo.jpg" ≡ some "image/jpeg"
+
+test "detects JPEG media type" := do
+  mediaTypeFromPath "photo.jpeg" ≡ some "image/jpeg"
+
+test "detects GIF media type" := do
+  mediaTypeFromPath "animation.gif" ≡ some "image/gif"
+
+test "detects WebP media type" := do
+  mediaTypeFromPath "modern.webp" ≡ some "image/webp"
+
+test "returns none for unsupported format" := do
+  mediaTypeFromPath "document.pdf" ≡ none
+
+test "returns none for no extension" := do
+  mediaTypeFromPath "noextension" ≡ none
+
+test "handles path with directories" := do
+  mediaTypeFromPath "/path/to/image.png" ≡ some "image/png"
+
+end Tests.ImageInput
 
 def main : IO UInt32 := runAllSuites
