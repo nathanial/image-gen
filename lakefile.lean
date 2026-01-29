@@ -31,3 +31,4 @@ lean_lib Tests where
 @[test_driver]
 lean_exe «image-gen_tests» where
   root := `Tests.Main
+  moreLinkArgs := curlLinkArgs

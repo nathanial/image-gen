@@ -1,6 +1,7 @@
 import Crucible
 import Parlance
 import ImageGen.Base64
+import ImageGen.Batch
 
 open Crucible
 open Parlance
@@ -33,10 +34,23 @@ def cmd : Command := command "image-gen" do
     (argType := .path)
     (description := "Input image file path (can be specified multiple times)")
 
+  Cmd.flag "batch" (short := some 'b')
+    (argType := .path)
+    (description := "Read prompts from file (one per line, use '-' for stdin)")
+
+  Cmd.flag "output-dir" (short := some 'd')
+    (argType := .path)
+    (description := "Output directory for batch mode")
+
+  Cmd.flag "prefix"
+    (argType := .string)
+    (description := "Filename prefix for batch output")
+    (defaultValue := some "image")
+
   Cmd.arg "prompt"
     (argType := .string)
     (description := "Text prompt describing the image to generate")
-    (required := true)
+    (required := false)
 
 namespace Tests.CLI
 
@@ -119,12 +133,13 @@ test "rejects invalid aspect ratio" := do
   | .error _ =>
     pure ()
 
-test "fails when prompt is missing" := do
-  match parse cmd ["--output", "test.png"] with
-  | .ok _ =>
-    throw (IO.userError "Should have required prompt")
-  | .error _ =>
-    pure ()
+test "allows missing prompt when batch flag is provided" := do
+  match parse cmd ["--batch", "prompts.txt"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "prompts.txt"
+    result.getString "prompt" ≡ none
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
 
 test "parses all flags together" := do
   match parse cmd ["-o", "out.png", "-a", "4:3", "-m", "mymodel", "-v", "A complex prompt"] with
@@ -179,6 +194,67 @@ test "parses image with other flags" := do
     result.getString "output" ≡ some "out.png"
     result.getString "aspect-ratio" ≡ some "16:9"
     result.getString "prompt" ≡ some "Transform this"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses batch flag with short form" := do
+  match parse cmd ["-b", "prompts.txt"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "prompts.txt"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses batch flag with long form" := do
+  match parse cmd ["--batch", "prompts.txt"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "prompts.txt"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses output-dir flag with short form" := do
+  match parse cmd ["-b", "prompts.txt", "-d", "/tmp/output"] with
+  | .ok result =>
+    result.getString "output-dir" ≡ some "/tmp/output"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses output-dir flag with long form" := do
+  match parse cmd ["--batch", "prompts.txt", "--output-dir", "/tmp/output"] with
+  | .ok result =>
+    result.getString "output-dir" ≡ some "/tmp/output"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses prefix flag" := do
+  match parse cmd ["--batch", "prompts.txt", "--prefix", "art"] with
+  | .ok result =>
+    result.getString "prefix" ≡ some "art"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "uses default prefix value" := do
+  match parse cmd ["--batch", "prompts.txt"] with
+  | .ok result =>
+    result.getString! "prefix" "" ≡ "image"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "batch with stdin indicator" := do
+  match parse cmd ["--batch", "-"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "-"
+  | .error e =>
+    throw (IO.userError s!"Parse failed: {e}")
+
+test "parses batch with other flags" := do
+  match parse cmd ["-b", "prompts.txt", "-d", "/tmp/out", "--prefix", "gen", "-a", "16:9", "-m", "mymodel", "-v"] with
+  | .ok result =>
+    result.getString "batch" ≡ some "prompts.txt"
+    result.getString "output-dir" ≡ some "/tmp/out"
+    result.getString "prefix" ≡ some "gen"
+    result.getString "aspect-ratio" ≡ some "16:9"
+    result.getString "model" ≡ some "mymodel"
+    shouldSatisfy (result.getBool "verbose") "verbose should be true"
   | .error e =>
     throw (IO.userError s!"Parse failed: {e}")
 
@@ -278,5 +354,35 @@ test "handles path with directories" := do
   mediaTypeFromPath "/path/to/image.png" ≡ some "image/png"
 
 end Tests.ImageInput
+
+namespace Tests.Batch
+
+testSuite "Batch Processing"
+
+test "outputFilename pads single digit for small batch" := do
+  ImageGen.Batch.outputFilename "art" 1 5 ≡ "art_1.png"
+
+test "outputFilename pads to 2 digits for 10+ batch" := do
+  ImageGen.Batch.outputFilename "art" 1 15 ≡ "art_01.png"
+
+test "outputFilename pads to 2 digits middle of batch" := do
+  ImageGen.Batch.outputFilename "art" 9 15 ≡ "art_09.png"
+
+test "outputFilename no padding needed for double digit" := do
+  ImageGen.Batch.outputFilename "art" 12 15 ≡ "art_12.png"
+
+test "outputFilename pads to 3 digits for 100+ batch" := do
+  ImageGen.Batch.outputFilename "img" 1 150 ≡ "img_001.png"
+
+test "outputFilename pads to 3 digits middle" := do
+  ImageGen.Batch.outputFilename "img" 42 150 ≡ "img_042.png"
+
+test "outputFilename no padding for triple digit" := do
+  ImageGen.Batch.outputFilename "img" 123 150 ≡ "img_123.png"
+
+test "outputFilename custom prefix" := do
+  ImageGen.Batch.outputFilename "landscape" 5 10 ≡ "landscape_05.png"
+
+end Tests.Batch
 
 def main : IO UInt32 := runAllSuites
